@@ -16,33 +16,62 @@ type SynNode =
 
 // =========== Semantically Bound Tree ===========
 
-/// Locals are indices into some arbitrary array of storage. Locals begin their
-/// indexing again at 0 when a new lambda is defined
-type Local = Local of int
+/// Storage locations for variables.
+type Storage =
+    /// Locals are indices into some arbitrary array of storage. Locals begin their
+    /// indexing again at 0 when a new lambda is defined
+    | Local of int
+    /// Load from the function's argument
+    | Arg
 
 /// Bound node, with captured variables resolved
 type Bound =
     | Number of int
-    | Load of Local
-    | Store of Local * Bound
+    | Load of Storage
+    | Store of Storage * Bound
     | Seq of Bound list
+    | Lambda of Bound
 
 // ================== Bind Pass ================== 
 
+type Variable =
+    { Name: string
+    ; Storage: Storage }
+
 /// Binder context, flowed through the bind to keep track of the current state
 type BindCtx =
-    { mutable Locals: string list }
+    { Parent: BindCtx option
+    ; mutable NextLocal: int
+    ; mutable Locals: Variable list }
 
     /// Lookup the given `id` in the current binder context.
     member ctx.Lookup id =
-        List.tryFindIndex (fun l -> l = id) ctx.Locals
-        |> Option.map (fun idx -> Local (ctx.Locals.Length - 1 - idx))
+        List.tryFind (fun l -> l.Name = id) ctx.Locals
+        |> Option.map (fun v -> v.Storage)
 
     /// Introduce a new local definition.
     member ctx.Define id =
-        let idx = ctx.Locals.Length
-        ctx.Locals <- id::ctx.Locals
-        Local idx
+        let storage = Storage.Local(ctx.NextLocal)
+        ctx.Locals <- { Name = id; Storage = storage }::ctx.Locals
+        ctx.NextLocal <- ctx.NextLocal + 1
+        storage
+
+    /// Define a lambda argument
+    member ctx.DefineArg id =
+        ctx.Locals <- { Name = id
+                      ; Storage = Storage.Arg }::ctx.Locals
+
+    /// Create the empty root bind context
+    static member Root =
+        { Parent = None
+        ; NextLocal = 0
+        ; Locals = [] }
+
+    /// Create a derived contex for binding lambdas
+    static member WithParent parent =
+        { Parent = Some(parent)
+        ; NextLocal = 0
+        ; Locals = [] }
 
 /// Bind the syntactic tree and produce a bound tree
 let rec private bind (ctx: BindCtx) = function
@@ -59,13 +88,15 @@ let rec private bind (ctx: BindCtx) = function
         | Some local -> Bound.Store(local, bind ctx expr)
         | None -> failwithf "Attempt to store into undefined local %s" id
     | SynNode.Seq s -> List.map (bind ctx) s |> Bound.Seq
-    | e -> failwithf "Error binding %A" e
+    | SynNode.Lambda(formal, body) ->
+        let lambdaCtx = BindCtx.WithParent(ctx)
+        lambdaCtx.DefineArg formal
+        bind lambdaCtx body |> Bound.Lambda
 
 /// Test the binder on a given syntactic tree.
 let private testBind tree =
     printfn "raw: %A" tree
-    let ctx = { Locals = [] }
-    bind ctx tree |> printfn "Bound: %A"
+    bind BindCtx.Root tree |> printfn "Bound: %A"
 
 [<EntryPoint>]
 let main argv =
@@ -84,5 +115,6 @@ let main argv =
     SynNode.Seq [ SynNode.Define("hello", SynNode.Number 123)
                 ; SynNode.Define("world", SynNode.Number 456)
                 ; SynNode.Store("hello", SynNode.Load "world") ] |> testBind
+    SynNode.Lambda("x", SynNode.Load "x") |> testBind
 
     0 // return an integer exit code
