@@ -23,6 +23,12 @@ type Storage =
     | Local of int
     /// Load from the function's argument
     | Arg
+    /// A captured local or argument stored in the captures environment at some
+    /// given index
+    | Environment of Storage
+    /// Value is stored in the parent environment, the storage location could be
+    /// another `Capture`, or a `Environment` storage location
+    | Capture of Storage
 
 /// Bound node, with captured variables resolved
 type Bound =
@@ -36,7 +42,7 @@ type Bound =
 
 type Variable =
     { Name: string
-    ; Storage: Storage }
+    ; mutable Storage: Storage }
 
 /// Binder context, flowed through the bind to keep track of the current state
 type BindCtx =
@@ -46,8 +52,27 @@ type BindCtx =
 
     /// Lookup the given `id` in the current binder context.
     member ctx.Lookup id =
-        List.tryFind (fun l -> l.Name = id) ctx.Locals
-        |> Option.map (fun v -> v.Storage)
+        match ctx.LookupVar id with
+        // If this was in our environment, then return the variable's current
+        // storage location
+        | Some(v) -> Some(v.Storage)
+        | None ->
+            match ctx.Parent with
+            | Some(parent) -> Option.map Storage.Capture (parent.LookupAndCapture id)
+            | None -> None
+
+    /// Lookup the given `id` in the current context, and move it to captured
+    /// storage if it hasn't already been moved there.
+    member ctx.LookupAndCapture id =
+        match ctx.LookupVar id with
+        | Some(v) -> 
+            match v.Storage with
+            | Environment(_) -> Some(v.Storage)
+            | s -> 
+                v.Storage <- Storage.Environment(s)
+                Some(v.Storage)
+        // TODO: Capture chaining
+        | None -> None
 
     /// Introduce a new local definition.
     member ctx.Define id =
@@ -60,6 +85,10 @@ type BindCtx =
     member ctx.DefineArg id =
         ctx.Locals <- { Name = id
                       ; Storage = Storage.Arg }::ctx.Locals
+
+    /// Lookup the raw varirable for for the given ID
+    member private ctx.LookupVar id =
+        List.tryFind (fun l -> l.Name = id) ctx.Locals
 
     /// Create the empty root bind context
     static member Root =
@@ -116,5 +145,10 @@ let main argv =
                 ; SynNode.Define("world", SynNode.Number 456)
                 ; SynNode.Store("hello", SynNode.Load "world") ] |> testBind
     SynNode.Lambda("x", SynNode.Load "x") |> testBind
+    SynNode.Lambda("x", SynNode.Seq [
+            SynNode.Define("counter", SynNode.Number 1) // << store to local
+            SynNode.Lambda("y", SynNode.Store("counter", SynNode.Number 2)) // << capture
+            SynNode.Load "counter" // load from captured value
+        ]) |> testBind
 
     0 // return an integer exit code
