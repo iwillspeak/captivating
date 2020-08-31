@@ -161,5 +161,12 @@ let main argv =
             SynNode.Lambda("y", SynNode.Store("counter", SynNode.Number 2)) // << capture
             SynNode.Load "counter" // load from captured value
         ]) |> testBind
+    SynNode.Seq [ SynNode.Define("a", SynNode.Number 1337)
+                ; SynNode.Lambda("x", SynNode.Store("a", SynNode.Number 102))
+                ; SynNode.Lambda("y", SynNode.Seq [
+                    SynNode.Define("b", SynNode.Lambda("z", SynNode.Store("a", SynNode.Load("z"))))
+                    SynNode.Load("b")
+                ])
+        ] |> testBind
 
     0 // return an integer exit code
