@@ -38,13 +38,18 @@ type BindCtx =
         List.tryFindIndex (fun l -> l = id) ctx.Locals
         |> Option.map (fun idx -> Local (ctx.Locals.Length - 1 - idx))
 
+    /// Introduce a new local definition.
+    member ctx.Define id =
+        let idx = ctx.Locals.Length
+        ctx.Locals <- id::ctx.Locals
+        Local idx
+
 /// Bind the syntactic tree and produce a bound tree
-let rec private bind ctx = function
+let rec private bind (ctx: BindCtx) = function
     | SynNode.Number n -> Bound.Number n
     | SynNode.Define(id, init) ->
-        let localIdx = ctx.Locals.Length
-        ctx.Locals <- id::ctx.Locals
-        Bound.Store(Local localIdx, bind ctx init)
+        let local = ctx.Define id
+        Bound.Store(local, bind ctx init)
     | SynNode.Load id ->
         match ctx.Lookup id with
         | Some local -> Bound.Load local
