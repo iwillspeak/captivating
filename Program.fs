@@ -36,7 +36,7 @@ type Bound =
     | Load of Storage
     | Store of Storage * Bound
     | Seq of Bound list
-    | Lambda of Bound
+    | Lambda of hoists:Storage list * body:Bound
 
 // ================== Bind Pass ================== 
 
@@ -48,6 +48,7 @@ type Variable =
 type BindCtx =
     { Parent: BindCtx option
     ; mutable NextLocal: int
+    ; mutable Captures: Storage list
     ; mutable Locals: Variable list }
 
     /// Lookup the given `id` in the current binder context.
@@ -70,15 +71,15 @@ type BindCtx =
                 Some(v.Storage)
         | None -> ctx.ParentLookup id
 
-    /// Look up the value in the parent context, and return an `Upvalue`
-    /// to that value.
+    /// Look up the id in the parent context, and return an `Capture` to it.
     member ctx.ParentLookup id =
         match ctx.Parent with
         | Some(parent) -> 
-            // TODO: add the parent's value to our context as a capture
-            //       so that we can emit the correct "hoist"s along with the
-            //       lambda value.
-            Option.map Storage.Capture (parent.LookupAndCapture id)
+            match parent.LookupAndCapture id with
+            | Some(storage) ->
+                ctx.Captures <- storage::ctx.Captures
+                Some(Storage.Capture(storage))
+            | None -> None
         | None -> None
 
     /// Introduce a new local definition.
@@ -101,12 +102,14 @@ type BindCtx =
     static member Root =
         { Parent = None
         ; NextLocal = 0
+        ; Captures = []
         ; Locals = [] }
 
     /// Create a derived contex for binding lambdas
     static member WithParent parent =
         { Parent = Some(parent)
         ; NextLocal = 0
+        ; Captures = []
         ; Locals = [] }
 
 /// Bind the syntactic tree and produce a bound tree
@@ -127,7 +130,8 @@ let rec private bind (ctx: BindCtx) = function
     | SynNode.Lambda(formal, body) ->
         let lambdaCtx = BindCtx.WithParent(ctx)
         lambdaCtx.DefineArg formal
-        bind lambdaCtx body |> Bound.Lambda
+        let body = bind lambdaCtx body 
+        Bound.Lambda(lambdaCtx.Captures, body)
 
 /// Test the binder on a given syntactic tree.
 let private testBind tree =
