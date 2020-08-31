@@ -3,6 +3,8 @@
 // This is an experiment in correctly binding the capture of local and closure
 // variables in a lambda-calculus derived language.
 
+// ================ Syntax Tree =================
+
 /// Syntactic node, as if from source code.
 type SynNode =
     | Number of int
@@ -12,9 +14,7 @@ type SynNode =
     | Lambda of string * SynNode
     | Seq of SynNode list
 
-/// Binder context, flowed through the bind to keep track of the current state
-type BindCtx =
-    { mutable Locals: string list }
+// =========== Semantically Bound Tree ===========
 
 /// Locals are indices into some arbitrary array of storage. Locals begin their
 /// indexing again at 0 when a new lambda is defined
@@ -27,6 +27,17 @@ type Bound =
     | Store of Local * Bound
     | Seq of Bound list
 
+// ================== Bind Pass ================== 
+
+/// Binder context, flowed through the bind to keep track of the current state
+type BindCtx =
+    { mutable Locals: string list }
+
+    /// Lookup the given `id` in the current binder context.
+    member ctx.Lookup id =
+        List.tryFindIndex (fun l -> l = id) ctx.Locals
+        |> Option.map (fun idx -> Local (ctx.Locals.Length - 1 - idx))
+
 /// Bind the syntactic tree and produce a bound tree
 let rec private bind ctx = function
     | SynNode.Number n -> Bound.Number n
@@ -35,9 +46,13 @@ let rec private bind ctx = function
         ctx.Locals <- id::ctx.Locals
         Bound.Store(Local localIdx, bind ctx init)
     | SynNode.Load id ->
-        match List.tryFindIndex (fun l -> l = id) ctx.Locals with
-        | Some idx -> Bound.Load (Local (ctx.Locals.Length - 1 - idx))
+        match ctx.Lookup id with
+        | Some local -> Bound.Load local
         | None -> failwithf "Reference to undefined %s" id
+    | SynNode.Store(id, expr) ->
+        match ctx.Lookup id with
+        | Some local -> Bound.Store(local, bind ctx expr)
+        | None -> failwithf "Attempt to store into undefined local %s" id
     | SynNode.Seq s -> List.map (bind ctx) s |> Bound.Seq
     | e -> failwithf "Error binding %A" e
 
@@ -61,5 +76,8 @@ let main argv =
                 ; SynNode.Define("baz", SynNode.Number 456)
                 ; SynNode.Load("foo")
                 ; SynNode.Load("baz") ] |> testBind
+    SynNode.Seq [ SynNode.Define("hello", SynNode.Number 123)
+                ; SynNode.Define("world", SynNode.Number 456)
+                ; SynNode.Store("hello", SynNode.Load "world") ] |> testBind
 
     0 // return an integer exit code
