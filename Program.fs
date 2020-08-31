@@ -56,10 +56,7 @@ type BindCtx =
         // If this was in our environment, then return the variable's current
         // storage location
         | Some(v) -> Some(v.Storage)
-        | None ->
-            match ctx.Parent with
-            | Some(parent) -> Option.map Storage.Capture (parent.LookupAndCapture id)
-            | None -> None
+        | None -> ctx.ParentLookup id
 
     /// Lookup the given `id` in the current context, and move it to captured
     /// storage if it hasn't already been moved there.
@@ -71,7 +68,17 @@ type BindCtx =
             | s -> 
                 v.Storage <- Storage.Environment(s)
                 Some(v.Storage)
-        // TODO: Capture chaining
+        | None -> ctx.ParentLookup id
+
+    /// Look up the value in the parent context, and return an `Upvalue`
+    /// to that value.
+    member ctx.ParentLookup id =
+        match ctx.Parent with
+        | Some(parent) -> 
+            // TODO: add the parent's value to our context as a capture
+            //       so that we can emit the correct "hoist"s along with the
+            //       lambda value.
+            Option.map Storage.Capture (parent.LookupAndCapture id)
         | None -> None
 
     /// Introduce a new local definition.
