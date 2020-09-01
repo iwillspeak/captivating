@@ -1,4 +1,4 @@
-﻿// ~~~~~~~~` Captivating `~~~~~~~~~~
+﻿// ~~~~~~~~~` Captivating `~~~~~~~~~~
 //
 // This is an experiment in correctly binding the capture of local and closure
 // variables in a lambda-calculus derived language.
@@ -27,7 +27,7 @@ type Storage =
     /// given index
     | Environment of Storage
     /// Value is stored in the parent environment, the storage location could be
-    /// another `Capture`, or a `Environment` storage location
+    /// another `Capture`, or an `Environment` storage location
     | Capture of Storage
 
 /// Bound node, with captured variables resolved
@@ -36,7 +36,7 @@ type Bound =
     | Load of Storage
     | Store of Storage * Bound
     | Seq of Bound list
-    | Lambda of hoists:Storage list * body:Bound
+    | Lambda of Storage list * Bound
 
 // ================== Bind Pass ================== 
 
